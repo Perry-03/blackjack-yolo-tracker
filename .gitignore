@@ -1,0 +1,14 @@
+venv/
+env/
+
+final_dataset/
+raw_videos/
+/runs
+
+__pycache__/
+*.pyc
+
+runs/detect/predict*/
+
+.DS_Store
+Thumbs.db
