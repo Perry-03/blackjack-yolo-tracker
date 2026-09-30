@@ -1,10 +1,14 @@
 from ultralytics import YOLO
 import cv2
 import math
+import torch
 
 class BlackjackGame:
     def __init__(self, path):
-        self.model = YOLO(path)
+        if torch.cuda.is_available():
+            self.model = YOLO(path)
+        else:
+            self.model = YOLO("models/weights/best_openvino_model/")
         self.cap = cv2.VideoCapture(0)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
@@ -97,15 +101,15 @@ class BlackjackGame:
         else:
             cv2.putText(frame, "DRAW", (800, 500), cv2.FONT_HERSHEY_TRIPLEX, 2, (0, 255, 255), 2)
 
-
     def run(self):
-        self.model.info()
         playing = False
 
         while True:
             _, frame = self.cap.read()
-    
-            results = self.model.track(frame, persist=True, conf=.8, imgsz=1024, device=0, verbose=False)
+            if torch.cuda.is_available():
+                results = self.model.track(frame, persist=True, conf=.8, imgsz=1024, device=0, verbose=False)
+            else:
+                results = self.model.track(frame, persist=True, conf=.8, imgsz=640, device='cpu', tracker="bytetrack.yaml", verbose=False)
             boxes = results[0].boxes
     
             if boxes is not None and boxes.id is not None:
