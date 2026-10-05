@@ -2,6 +2,7 @@ venv/
 env/
 
 final_dataset/
+dataset/
 raw_videos/
 /runs
 

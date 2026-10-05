@@ -51,22 +51,30 @@ Qui sotto ci sono alcuni fotogrammi del **mio dataset**. Mostrano carte riprese 
   </tr>
 </table>
 
-## Addestramento e metriche
+## Valutazione e Metriche (Test Set)
 
-Lo script [`train.py`](train.py) contiene la configurazione Ultralytics per il training sul dataset in `final_dataset/data.yaml`. Il dataset di training non è incluso nel repository; il percorso del modello di partenza indicato nello script deve essere disponibile localmente.
+Dopo un primo addestramento su un dataset massivo (Roboflow) per far apprendere al modello i pattern base, ho eseguito un secondo round di **fine-tuning** utilizzando un dataset proprietario. Questo ha risolto i problemi di overfitting sulle immagini sintetiche, adattando la rete alle reali condizioni di illuminazione, sfocatura da movimento e parziale sovrapposizione delle carte sul mio tavolo.
 
-L'immagine seguente mostra il log di una sessione di training di 50 epoche:
+Le prestazioni finali del modello sono state calcolate su uno split di `test` completamente inedito (dati mai visti dal modello durante il training), ottenendo i seguenti risultati matematici:
 
-![Log del training YOLO](img/training.png)
+* **Precision:** 93.4%
+* **Recall:** 92.8%
+* **mAP50:** 98.2%
+* **mAP50-95:** 80.9%
 
-Nel log mostrato, le metriche sul validation set sono **Precision = 1.00**, **Recall = 1.00**, **mAP50 = 0.995** e **mAP50-95 = 0.983**. Il validation set riportato contiene 2.020 immagini e 8.080 istanze. Sono risultati del dataset di validazione: non garantiscono le stesse prestazioni in ogni condizione reale.
+Qui di seguito la **Curva Precision-Recall** e la **Matrice di Confusione Normalizzata**, che dimostrano la robustezza del sistema e l'assenza di scambi frequenti tra classi simili (es. 8 di Cuori vs 8 di Quadri).
 
-- **Precision**: quota delle rilevazioni effettuate che è corretta.
-- **Recall**: quota degli oggetti presenti che il modello riesce a rilevare.
-- **mAP50**: media della precisione media con soglia IoU pari a 0,50.
-- **mAP50-95**: mAP media su soglie IoU da 0,50 a 0,95, con passo 0,05.
+![Curva Precision-Recall](img/BoxPR_curve.png)
 
-Il problema riscontrato dopo questo primo round di fine tuning è quello di avere un modello ottimo a riconsocere solo le carte mostrate nel dataset, ovvero quella tipologia esatta di carte. Per questo motivo ho cercato di affinare il modello facendo un secondo round di fine tuning utilizzando il mio dataset.
+![Matrice di Confusione](img/confusion_matrix_normalized.png)
+
+## ⚙️ Architettura Tecnica e Tracking
+
+Il sistema non si limita a rilevare le carte fotogramma per fotogramma, ma utilizza un'architettura ibrida per mantenere la coerenza temporale della partita:
+
+* **Hardware-Aware Inference:** L'applicazione rileva dinamicamente l'hardware disponibile. Se trova una GPU NVIDIA (CUDA), carica i pesi standard `.pt` (sfruttando PyTorch). Se avviata su un portatile senza GPU dedicata, passa in automatico al modello esportato in **OpenVINO** (`best_openvino_model/`), garantendo FPS fluidi sfruttando l'ottimizzazione per CPU Intel.
+* **Object Tracking (BoT-SORT / ByteTrack):** Per evitare che la stessa carta venga conteggiata più volte mentre rimane sul tavolo, il sistema aggancia un Tracker ai box di YOLOv8. Ogni carta riceve un ID univoco.
+* **Logica Spaziale:** Il codice calcola le distanze (tramite teorema di Pitagora sui centroidi) e mantiene in memoria le carte già processate per il punteggio, ignorando le fluttuazioni temporanee dei bounding box.
 
 ## Avvio
 
@@ -94,7 +102,7 @@ Il problema riscontrato dopo questo primo round di fine tuning è quello di aver
    python main.py
    ```
 
-Ho creato l'applicazione hardware dependent, quindi se è presente una GPU viene utilizzato il file di pesi in `models/weights/best.pt`, se invece il computer è sprovvisto di scheda video, viene utilizzata la CPU caricando la cartella OpenVino: `models/wheights/best_openvino_model/`.
+Ho creato l'applicazione hardware dependent, quindi se è presente una GPU viene utilizzato il file di pesi in `models/weights/best.pt`, se invece il computer è sprovvisto di scheda video, viene utilizzata la CPU caricando la cartella OpenVino: `models/weights/best_openvino_model/`.
 
 ### Tasti dell'interfaccia
 
