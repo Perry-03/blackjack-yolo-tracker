@@ -2,13 +2,33 @@
 
 Un progetto di computer vision che riconosce le carte da gioco tramite webcam e usa le rilevazioni per tenere aggiornati il punteggio di una mano di Blackjack e il conteggio Hi-Lo.
 
-Il modello rileva 52 classi — una per ogni carta, senza jolly — e assegna a ciascuna carta un bounding box e un'etichetta.
+Il modello rileva 52 classi, una per ogni carta (senza jolly) e assegna a ciascuna carta un bounding box e un'etichetta.
 
-## Come funziona
+## Contesto e architettura del modello
 
-Il progetto utilizza **YOLOv8s** tramite [Ultralytics](https://docs.ultralytics.com/), con un modello inizialmente pre-addestrato e poi sottoposto a fine-tuning per riconoscere le carte da gioco.
+In questo progetto è stata utilizzata la versione YOLOv8, sviluppata da [Ultralytics](https://docs.ultralytics.com/).
+
+YOLOv8 è disponibile in diverse taglie (n, s, m, l, x), che rappresentano un compromesso tra velocità di inferenza e accuratezza: modelli più piccoli sono più veloci ma meno precisi, quelli più grandi sono più accurati ma più pesanti computazionalmente. In questo progetto è stata scelta la variante YOLOv8s (small), un buon compromesso tra accuratezza e velocità di inferenza.
+
+Dalla [documentazione ufficiale](https://docs.ultralytics.com/it/models/yolov8) emerge la struttura del modello:
+- **Backbone:** si occupa dell'estrazione di feature dall'immagine in input a risoluzioni multiple.
+- **Neck:** fonde le feature estratte a diverse scale, in modo che sia gli oggetti piccoli sia quelli grandi abbiano il giusto contesto.
+- **Head:** prevede i bounding box e i punteggi delle classi a partire dalle feature fuse dal Neck.
 
 L'applicazione acquisisce i fotogrammi dalla webcam, traccia gli oggetti rilevati e mostra le predizioni in una finestra OpenCV. Quando l'interfaccia di gioco è attiva, tiene inoltre traccia delle carte viste, dei punteggi di giocatore e banco e del conteggio Hi-Lo.
+
+### Regole del Blackjack
+L'applicazione utilizza una versione semplificata del gioco del _Blackjack_, contando solamente le carte che vengono richieste dal banco o dal giocatore. I valori delle carte sono i seguenti:
+
+| Carta | Valore |
+| --- | --- |
+| carta numerica | valore della carta stessa |
+| figura | 10 |
+| asso | 11 se il punteggio non supera 21, 1 altrimenti |
+
+
+**N.B**:
+In questa applicazione si assume di giocare a Blackjack con un solo mazzo di carte.
 
 ### Conteggio delle carte
 
@@ -20,13 +40,21 @@ Il valore Hi-Lo usato nel progetto è:
 | 7–9 | 0 |
 | 10, J, Q, K, A | -1 |
 
-Gli assi valgono 11 nel calcolo del punteggio della mano; quando il totale supera 21, il loro valore viene ridotto a 1.
+L'idea del metodo Hi-Lo è che se il conteggio attuale è molto alto allora è probabile che le prossime carte abbiano valori alti, dando del vantaggio al player e svantaggiando il banco.
 
-## Dataset
+## Dataset e Fine-Tuning
 
-Il primo fine-tuning è stato eseguito con un dataset di carte ottenuto tramite [Roboflow Universe](https://universe.roboflow.com/). Per rendere il modello più adatto a situazioni reali, ho poi creato un dataset personale: ho registrato video mentre maneggiavo le carte, estratto dei fotogrammi e fatto generare al modello delle annotazioni iniziali. Ho corretto le classificazioni e i bounding box su Roboflow e applicato tecniche di data augmentation, tra cui rotazioni e conversione in scala di grigi.
+## Dataset e Fine-Tuning
 
-Qui sotto ci sono alcuni fotogrammi del **mio dataset**. Mostrano carte riprese in condizioni diverse, con mani, sfondi e orientamenti differenti, oltre a carte parzialmente sovrapposte.
+Il processo di addestramento del modello è stato iterativo, sviluppato in tre fasi successive, ciascuna ripartita dal checkpoint (`best.pt`) prodotto dalla fase precedente anziché dai pesi generici pre-addestrati su COCO — permettendo al modello di ereditare progressivamente la conoscenza acquisita nelle fasi precedenti.
+
+**Fase 1 — Training di base.** Il primo addestramento è stato eseguito su un dataset di carte massivo ottenuto tramite [Roboflow Universe](https://universe.roboflow.com/), per far apprendere al modello i pattern generali di una carta da gioco (forma dei semi, numeri, struttura dell'indice). Durante le simulazioni reali con webcam è emerso però un problema di overfitting: il modello si era eccessivamente adattato allo stile grafico specifico di quel dataset (semi particolarmente rotondi e piccoli, condizioni di luce uniformi) e faticava a generalizzare sulle carte reali del progetto, specialmente se tenute in mano anziché appoggiate su un piano.
+
+**Fase 2 — Primo fine-tuning.** È stato eseguito un primo fine-tuning aggiungendo alcune fotografie delle carte reali utilizzate nel progetto, incluse alcune tenute in mano, per iniziare a colmare il divario tra le condizioni sintetiche del dataset originale e quelle reali d'uso.
+
+**Fase 3 — Dataset personale esteso.** Poiché i miglioramenti non erano ancora sufficienti, è stato costruito un dataset più ampio, composto interamente da fotogrammi estratti da video girati nelle condizioni reali d'uso (webcam, luce d'ambiente, carte in mano, parzialmente sovrapposte o inclinate). Le annotazioni iniziali sono state generate automaticamente dal modello della fase precedente e poi corrette manualmente su Roboflow; sono state inoltre applicate tecniche di *data augmentation* (rotazioni, variazioni di esposizione, conversione in scala di grigi). Il modello è stato quindi sottoposto a un ultimo ciclo di fine-tuning su questo dataset, riportando un netto miglioramento delle prestazioni nelle condizioni d'uso reali — è il checkpoint finale, usato nell'applicazione.
+
+Qui sotto alcuni fotogrammi del dataset della Fase 3. Mostrano carte riprese in condizioni diverse, con mani, sfondi e orientamenti differenti, oltre a carte parzialmente sovrapposte.
 
 <table>
   <tr>
@@ -51,30 +79,43 @@ Qui sotto ci sono alcuni fotogrammi del **mio dataset**. Mostrano carte riprese 
   </tr>
 </table>
 
-## Valutazione e Metriche (Test Set)
+### Andamento del training
 
-Dopo un primo addestramento su un dataset massivo (Roboflow) per far apprendere al modello i pattern base, ho eseguito un secondo round di **fine-tuning** utilizzando un dataset proprietario. Questo ha risolto i problemi di overfitting sulle immagini sintetiche, adattando la rete alle reali condizioni di illuminazione, sfocatura da movimento e parziale sovrapposizione delle carte sul mio tavolo.
+Il grafico seguente mostra l'andamento di loss e metriche durante la Fase 3 epoca per epoca.
 
-Le prestazioni finali del modello sono state calcolate su uno split di `test` completamente inedito (dati mai visti dal modello durante il training), ottenendo i seguenti risultati matematici:
+![Andamento del training](img/results.png)
+
+Le curve di training (box loss, classification loss, DFL loss) decrescono in modo regolare, segno che il modello converge correttamente. Le curve di validazione mostrano un andamento più rumoroso: è un comportamento atteso, dal momento che il validation set è molto più piccolo per questo ultimo round di fine tuning.
+
+Le prestazioni finali del modello sono state calcolate su uno split di `test` completamente inedito (dati mai visti dal modello durante il training per evitare overfitting), ottenendo i seguenti risultati matematici:
 
 * **Precision:** 93.4%
 * **Recall:** 92.8%
 * **mAP50:** 98.2%
 * **mAP50-95:** 80.9%
 
-Qui di seguito la **Curva Precision-Recall** e la **Matrice di Confusione Normalizzata**, che dimostrano la robustezza del sistema e l'assenza di scambi frequenti tra classi simili (es. 8 di Cuori vs 8 di Quadri).
+Qui di seguito la **Curva Precision-Recall** e la **Matrice di Confusione Normalizzata**, che dimostrano la robustezza del sistema e l'assenza di scambi frequenti tra classi con pattern simili (es. 8 di Cuori vs 8 di Picche).
 
-![Curva Precision-Recall](img/BoxPR_curve.png)
+<table>
+  <tr>
+    <td align="center">
+      <img src="img/BoxPR_curve.png" width="450" alt="Curva Precision-Recall">
+      <br><sub>Curva Precision-Recall</sub>
+    </td>
+    <td align="center">
+      <img src="img/confusion_matrix_normalized.png" width="450" alt="Matrice di Confusione Normalizzata">
+      <br><sub>Matrice di Confusione Normalizzata</sub>
+    </td>
+  </tr>
+</table>
 
-![Matrice di Confusione](img/confusion_matrix_normalized.png)
-
-## ⚙️ Architettura Tecnica e Tracking
+## Architettura Tecnica e Tracking
 
 Il sistema non si limita a rilevare le carte fotogramma per fotogramma, ma utilizza un'architettura ibrida per mantenere la coerenza temporale della partita:
 
-* **Hardware-Aware Inference:** L'applicazione rileva dinamicamente l'hardware disponibile. Se trova una GPU NVIDIA (CUDA), carica i pesi standard `.pt` (sfruttando PyTorch). Se avviata su un portatile senza GPU dedicata, passa in automatico al modello esportato in **OpenVINO** (`best_openvino_model/`), garantendo FPS fluidi sfruttando l'ottimizzazione per CPU Intel.
-* **Object Tracking (BoT-SORT / ByteTrack):** Per evitare che la stessa carta venga conteggiata più volte mentre rimane sul tavolo, il sistema aggancia un Tracker ai box di YOLOv8. Ogni carta riceve un ID univoco.
-* **Logica Spaziale:** Il codice calcola le distanze (tramite teorema di Pitagora sui centroidi) e mantiene in memoria le carte già processate per il punteggio, ignorando le fluttuazioni temporanee dei bounding box.
+* **Hardware-Aware Inference:** L'applicazione rileva dinamicamente l'hardware disponibile. Se trova una GPU NVIDIA (CUDA), carica i pesi standard `.pt` (sfruttando PyTorch). Se avviata su un portatile o un fisso senza GPU dedicata, passa in automatico al modello ottimizzato ed esportato in **OpenVINO** (`best_openvino_model/`), garantendo FPS fluidi sfruttando la CPU. 
+* **Object Tracking (BoT-SORT / ByteTrack):** Per evitare che la stessa carta venga conteggiata ripetutamente nei frame successivi (mentre rimane ferma sul tavolo), il sistema aggancia un Tracker ai box di YOLOv8. Assegnando a ogni carta un ID univoco, il modello "ricorda" le carte già processate e aggiorna il punteggio una sola volta.
+* **Logica Spaziale:** Per garantire il riconoscimento anche in caso di carte parzialmente sovrapposte, il modello è stato addestrato a rilevare i singoli indici (i numeri/lettere agli angoli). Poiché ogni carta scoperta mostra solitamente due indici, sorgeva il problema del doppio conteggio. Per risolverlo, il sistema calcola la distanza euclidea (tramite teorema di Pitagora) tra i bounding box vicini; se la distanza scende sotto una soglia dinamica calcolata in base alla risoluzione, il codice fonde le rilevazioni identificandole come un'unica carta fisica.
 
 ## Avvio
 
@@ -101,8 +142,6 @@ Il sistema non si limita a rilevare le carte fotogramma per fotogramma, ma utili
    ```bash
    python main.py
    ```
-
-Ho creato l'applicazione hardware dependent, quindi se è presente una GPU viene utilizzato il file di pesi in `models/weights/best.pt`, se invece il computer è sprovvisto di scheda video, viene utilizzata la CPU caricando la cartella OpenVino: `models/weights/best_openvino_model/`.
 
 ### Tasti dell'interfaccia
 
