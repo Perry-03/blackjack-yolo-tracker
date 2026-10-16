@@ -8,7 +8,7 @@ Il modello rileva 52 classi, una per ogni carta (senza jolly) e assegna a ciascu
 
 In questo progetto è stata utilizzata la versione YOLOv8, sviluppata da [Ultralytics](https://docs.ultralytics.com/).
 
-YOLOv8 è disponibile in diverse taglie (n, s, m, l, x), che rappresentano un compromesso tra velocità di inferenza e accuratezza: modelli più piccoli sono più veloci ma meno precisi, quelli più grandi sono più accurati ma più pesanti computazionalmente. In questo progetto è stata scelta la variante YOLOv8s (small), un buon compromesso tra accuratezza e velocità di inferenza.
+YOLOv8 è disponibile in diverse taglie (n, s, m, l, x), che rappresentano un compromesso tra velocità di inferenza e accuratezza: modelli più piccoli sono più veloci ma meno precisi, quelli più grandi sono più accurati ma più pesanti computazionalmente. In questo progetto è stata scelta la variante YOLOv8s (small).
 
 Dalla [documentazione ufficiale](https://docs.ultralytics.com/it/models/yolov8) emerge la struttura del modello:
 - **Backbone:** si occupa dell'estrazione di feature dall'immagine in input a risoluzioni multiple.
@@ -44,15 +44,13 @@ L'idea del metodo Hi-Lo è che se il conteggio attuale è molto alto allora è p
 
 ## Dataset e Fine-Tuning
 
-## Dataset e Fine-Tuning
-
-Il processo di addestramento del modello è stato iterativo, sviluppato in tre fasi successive, ciascuna ripartita dal checkpoint (`best.pt`) prodotto dalla fase precedente anziché dai pesi generici pre-addestrati su COCO — permettendo al modello di ereditare progressivamente la conoscenza acquisita nelle fasi precedenti.
+Il processo di addestramento del modello è stato iterativo, sviluppato in tre fasi successive, ciascuna ripartita dal checkpoint (`best.pt`) prodotto dalla fase precedente.
 
 **Fase 1 — Training di base.** Il primo addestramento è stato eseguito su un dataset di carte massivo ottenuto tramite [Roboflow Universe](https://universe.roboflow.com/), per far apprendere al modello i pattern generali di una carta da gioco (forma dei semi, numeri, struttura dell'indice). Durante le simulazioni reali con webcam è emerso però un problema di overfitting: il modello si era eccessivamente adattato allo stile grafico specifico di quel dataset (semi particolarmente rotondi e piccoli, condizioni di luce uniformi) e faticava a generalizzare sulle carte reali del progetto, specialmente se tenute in mano anziché appoggiate su un piano.
 
 **Fase 2 — Primo fine-tuning.** È stato eseguito un primo fine-tuning aggiungendo alcune fotografie delle carte reali utilizzate nel progetto, incluse alcune tenute in mano, per iniziare a colmare il divario tra le condizioni sintetiche del dataset originale e quelle reali d'uso.
 
-**Fase 3 — Dataset personale esteso.** Poiché i miglioramenti non erano ancora sufficienti, è stato costruito un dataset più ampio, composto interamente da fotogrammi estratti da video girati nelle condizioni reali d'uso (webcam, luce d'ambiente, carte in mano, parzialmente sovrapposte o inclinate). Le annotazioni iniziali sono state generate automaticamente dal modello della fase precedente e poi corrette manualmente su Roboflow; sono state inoltre applicate tecniche di *data augmentation* (rotazioni, variazioni di esposizione, conversione in scala di grigi). Il modello è stato quindi sottoposto a un ultimo ciclo di fine-tuning su questo dataset, riportando un netto miglioramento delle prestazioni nelle condizioni d'uso reali — è il checkpoint finale, usato nell'applicazione.
+**Fase 3 — Dataset personale esteso.** Poiché i miglioramenti non erano ancora sufficienti, è stato costruito un dataset più ampio, composto interamente da fotogrammi estratti da video girati nelle condizioni reali d'uso (webcam, luce d'ambiente, carte in mano, parzialmente sovrapposte o inclinate). Le annotazioni iniziali sono state generate automaticamente dal modello della fase precedente e poi corrette manualmente su Roboflow; sono state inoltre applicate tecniche di *data augmentation* (rotazioni, variazioni di esposizione, conversione in scala di grigi). Il modello è stato quindi sottoposto a un ultimo ciclo di fine-tuning su questo dataset, riportando un netto miglioramento delle prestazioni nelle condizioni d'uso reali.
 
 Qui sotto alcuni fotogrammi del dataset della Fase 3. Mostrano carte riprese in condizioni diverse, con mani, sfondi e orientamenti differenti, oltre a carte parzialmente sovrapposte.
 
@@ -111,9 +109,8 @@ Qui di seguito la **Curva Precision-Recall** e la **Matrice di Confusione Normal
 
 ## Architettura Tecnica e Tracking
 
-Il sistema non si limita a rilevare le carte fotogramma per fotogramma, ma utilizza un'architettura ibrida per mantenere la coerenza temporale della partita:
 
-* **Hardware-Aware Inference:** L'applicazione rileva dinamicamente l'hardware disponibile. Se trova una GPU NVIDIA (CUDA), carica i pesi standard `.pt` (sfruttando PyTorch). Se avviata su un portatile o un fisso senza GPU dedicata, passa in automatico al modello ottimizzato ed esportato in **OpenVINO** (`best_openvino_model/`), garantendo FPS fluidi sfruttando la CPU. 
+* **Hardware Inference:** L'applicazione rileva dinamicamente l'hardware disponibile. Se trova una GPU NVIDIA (CUDA), carica i pesi standard `.pt` (sfruttando PyTorch). Se avviata su un portatile o un fisso senza GPU dedicata, passa in automatico al modello ottimizzato ed esportato in **OpenVINO** (`best_openvino_model/`), garantendo FPS fluidi sfruttando la CPU. 
 * **Object Tracking (BoT-SORT / ByteTrack):** Per evitare che la stessa carta venga conteggiata ripetutamente nei frame successivi (mentre rimane ferma sul tavolo), il sistema aggancia un Tracker ai box di YOLOv8. Assegnando a ogni carta un ID univoco, il modello "ricorda" le carte già processate e aggiorna il punteggio una sola volta.
 * **Logica Spaziale:** Per garantire il riconoscimento anche in caso di carte parzialmente sovrapposte, il modello è stato addestrato a rilevare i singoli indici (i numeri/lettere agli angoli). Poiché ogni carta scoperta mostra solitamente due indici, sorgeva il problema del doppio conteggio. Per risolverlo, il sistema calcola la distanza euclidea (tramite teorema di Pitagora) tra i bounding box vicini; se la distanza scende sotto una soglia dinamica calcolata in base alla risoluzione, il codice fonde le rilevazioni identificandole come un'unica carta fisica.
 
@@ -129,6 +126,11 @@ Il sistema non si limita a rilevare le carte fotogramma per fotogramma, ma utili
 
    ```powershell
    .\.venv\Scripts\Activate.ps1
+   ```
+
+   Su Linux/macOS, attivalo con:
+   ```
+   source .venv/bin/activate
    ```
 
    Installare tutti i pacchetti necessari elencati nel file `requirements.txt`:
